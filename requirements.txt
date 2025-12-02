@@ -1,0 +1,10 @@
+streamlit
+yfinance
+pandas
+numpy
+plotly
+requests
+nltk
+vaderSentiment
+matplotlib
+scikit-learn
