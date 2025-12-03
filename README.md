@@ -99,19 +99,19 @@ Works as a strong portfolio project for:
 ## Screenshots
 
 ### **1. Dashboard Overview**
-![dashboard_overview](images/dashboard_overview.png)
+![dashboard_overview](dashboard_overview.png)
 
 ### **2. Price Chart**
-![price_chart](images/price_chart.png)
+![price_chart](price_chart.png)
 
 ### **3. Volatility (30-Day Rolling)**
-![volatility_chart](images/volatility_chart.png)
+![volatility_chart](volatility_chart.png)
 
 ### **4. Regime Classification**
-![regime_detecton](images/regime_detecton.png)
+![regime_detecton](regime_detecton.png)
 
 ### **5. Sentiment Panel**
-![sentiment-risk](images/sentiment-risk.png)
+![sentiment-risk](sentiment-risk.png)
 
 
 ---
