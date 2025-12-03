@@ -8,24 +8,20 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 # -------------------------------------------------------
-# PAGE CONFIG (Dark Quant Style)
+# PAGE CONFIG (Dark Mode)
 # -------------------------------------------------------
-st.set_page_config(page_title="Market Regime & Crash Risk Monitor", layout="wide")
+st.set_page_config(page_title="Market Regime & Risk Monitor", layout="wide")
 
-st.markdown(
-    """
-    <style>
-    body { background-color: #0b0c10; }
-    .main { background-color: #0b0c10; color: #eaeaea; }
-    h1, h2, h3, h4, h5, h6 { color: #66fcf1 !important; }
-    .stMetric { background-color: #1f2833 !important; border-radius: 8px; padding: 8px; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<style>
+body { background-color: #0b0c10; }
+.main { background-color: #0b0c10; color: #eaeaea; }
+h1,h2,h3,h4 { color:#66fcf1 !important; }
+</style>
+""", unsafe_allow_html=True)
 
 st.title("Market Regime & Crash Risk Monitor")
-st.write("Institutional-grade dashboard combining volatility, regimes, and sentiment-based risk.")
+
 
 # -------------------------------------------------------
 # ASSET SELECTOR
@@ -41,19 +37,28 @@ ASSETS = {
 asset_name = st.sidebar.selectbox("Select Asset", list(ASSETS.keys()))
 symbol = ASSETS[asset_name]
 
+
 # -------------------------------------------------------
-# UNIVERSAL CLEANER FOR ALL PRICE DATA
+# UNIVERSAL PRICE LOADER (MultiIndex SAFE)
 # -------------------------------------------------------
 @st.cache_data
 def load_price_data(symbol):
-    df = yf.download(symbol, period="3y", interval="1d", auto_adjust=False)
+    df = yf.download(symbol, period="3y", interval="1d")
 
     if df is None or df.empty:
         return pd.DataFrame()
 
-    df = df.reset_index()  # Ensure Date column exists
+    # ---- FIX: Flatten MultiIndex columns ----
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [
+            "_".join([str(c) for c in col if c]) for col in df.columns.values
+        ]
+    else:
+        df.columns = df.columns.astype(str)
 
-    # --- UNIVERSAL COLUMN NORMALIZATION & SYMBOL REMOVAL ---
+    df = df.reset_index()  # ensures a Date column
+
+    # Normalize names (SAFE even if MultiIndex before)
     df.columns = (
         df.columns
         .str.lower()
@@ -61,40 +66,35 @@ def load_price_data(symbol):
         .str.replace("-", "")
         .str.replace("_", "")
         .str.replace(".", "")
-        .str.replace("^", "")
-        .str.replace("=", "")
     )
 
-    # Debug print
-    st.write("Columns returned:", list(df.columns))
+    # Debug show in Streamlit
+    st.write("Columns detected:", df.columns.tolist())
 
-    # --- UNIVERSAL CLOSE DETECTOR ---
-    close_candidates = [c for c in df.columns if "close" in c]
+    # ---- Close Price detection ----
+    candidates = [c for c in df.columns if "close" in c]
 
-    if len(close_candidates) == 0:
-        # fallback if close not found
+    if len(candidates) == 0:
         num_cols = [c for c in df.columns if np.issubdtype(df[c].dtype, np.number)]
-        if "open" in df.columns:
-            close_candidates = ["open"]
-        elif len(num_cols) > 0:
-            close_candidates = [num_cols[0]]
-        else:
-            st.error("No usable price columns found.")
+        if len(num_cols) == 0:
+            st.error("No numeric price columns found.")
             return pd.DataFrame()
+        close_col = num_cols[0]
+    else:
+        close_col = candidates[0]
 
-    close_col = close_candidates[0]
-    df["ClosePrice"] = df[close_col].astype(float)
+    df["closeprice"] = df[close_col].astype(float)
 
-    # Ensure Date column
+    # Ensure date exists
     if "date" not in df.columns:
         df["date"] = df.index
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
-    df = df.dropna(subset=["date", "ClosePrice"]).sort_values("date").reset_index(drop=True)
+    df = df.dropna(subset=["date", "closeprice"]).sort_values("date")
 
     # Features
-    df["Returns"] = df["ClosePrice"].pct_change()
-    df["Volatility_30d"] = df["Returns"].rolling(30).std()
+    df["returns"] = df["closeprice"].pct_change()
+    df["volatility30"] = df["returns"].rolling(30).std()
 
     return df.dropna().reset_index(drop=True)
 
@@ -104,129 +104,128 @@ if df.empty:
     st.error("No valid price data found.")
     st.stop()
 
-# -------------------------------------------------------
-# SIMPLE NLP SENTIMENT (No NLTK)
-# -------------------------------------------------------
-@st.cache_data
-def load_headlines():
-    try:
-        url = "https://cryptopanic.com/api/v1/posts/?auth_token=bbf69ca77e536fa8d3&public=true"
-        r = requests.get(url, timeout=5).json()
-        if "results" in r:
-            return [item.get("title", "") for item in r["results"]][:20]
-    except:
-        pass
-    return [
-        "Markets remain cautious amid global uncertainty",
-        "Volatility rises as investors react to macro data",
-        "Risk sentiment weakens across global markets",
-        "Analysts warn of potential downside risks",
-        "Traders observe elevated volatility conditions",
-    ]
 
-
-def simple_sentiment_lexicon(text_list):
-    pos_words = {"bull", "optimistic", "growth", "upside", "rebound", "strong"}
-    neg_words = {"crash", "panic", "fear", "risk", "bear", "selloff", "volatility", "uncertain"}
+# -------------------------------------------------------
+# SIMPLE NLP SENTIMENT (No NLTK needed)
+# -------------------------------------------------------
+def simple_sentiment(text_list):
+    pos = {"up", "growth", "bull", "optimistic", "gain"}
+    neg = {"risk", "fear", "crash", "panic", "selloff", "bear", "volatile"}
 
     scores = []
     for t in text_list:
-        txt = t.lower()
-        score, hits = 0, 0
-        for w in pos_words:
-            if w in txt:
-                score += 1; hits += 1
-        for w in neg_words:
-            if w in txt:
-                score -= 1; hits += 1
+        t = t.lower()
+        score = 0
+        hits = 0
+        for w in pos:
+            if w in t: score += 1; hits += 1
+        for w in neg:
+            if w in t: score -= 1; hits += 1
         if hits > 0:
             scores.append(score / hits)
 
     return np.mean(scores) if scores else 0
 
 
+@st.cache_data
+def load_headlines():
+    try:
+        r = requests.get(
+            "https://cryptopanic.com/api/v1/posts/?auth_token=bbf69ca77e536fa8d3&public=true",
+            timeout=5,
+        ).json()
+        if "results" in r:
+            return [x.get("title", "") for x in r["results"]][:20]
+    except:
+        pass
+
+    return [
+        "Market uncertainty rises as volatility increases",
+        "Investors cautious amid global risks",
+        "Analysts warn of downside pressure",
+    ]
+
+
 headlines = load_headlines()
-avg_sentiment = simple_sentiment_lexicon(headlines)
-sentiment_fear = max(0, -avg_sentiment * 100)  # ↗ fear = negative sentiment
+sentiment_score = simple_sentiment(headlines)
+sentiment_fear = max(0, -sentiment_score * 100)
+
 
 # -------------------------------------------------------
-# MARKET REGIME DETECTION
+# REGIME DETECTION (KMeans)
 # -------------------------------------------------------
 def detect_regimes(df):
-    features = df[["Returns", "Volatility_30d"]]
-    scaler = StandardScaler()
-    X = scaler.fit_transform(features)
+    X = df[["returns", "volatility30"]].values
+    X = StandardScaler().fit_transform(X)
 
-    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
-    labels = kmeans.fit_predict(X)
+    km = KMeans(n_clusters=3, random_state=42, n_init=10)
+    labels = km.fit_predict(X)
 
-    df["Regime"] = labels
+    df["regime"] = labels
 
-    centers = pd.DataFrame(kmeans.cluster_centers_, columns=["ret", "vol"])
-    centers["stress"] = centers["vol"] - centers["ret"]  # Higher vol, lower return = more stress
-    order = centers.sort_values("stress", ascending=False).index.tolist()
+    centers = km.cluster_centers_
+    stress = centers[:, 1] - centers[:, 0]  # high vol - low return = stress
 
-    names = {order[0]: "High-Stress", order[1]: "Neutral", order[2]: "Calm"}
-    risk =  {order[0]: 85.0,        order[1]: 55.0,      order[2]: 25.0}
+    order = np.argsort(stress)[::-1]
+    names = {
+        order[0]: "High-Stress",
+        order[1]: "Neutral",
+        order[2]: "Calm"
+    }
+    risk = {
+        order[0]: 85,
+        order[1]: 55,
+        order[2]: 25
+    }
 
     return df, names, risk
 
 
-df, regime_names, regime_risk_map = detect_regimes(df)
+df, regime_names, risk_map = detect_regimes(df)
+
 
 # -------------------------------------------------------
-# CRASH RISK SCORE
+# CRASH RISK MODEL
 # -------------------------------------------------------
-latest_vol = df["Volatility_30d"].iloc[-1]
-vol_risk = min(100, latest_vol * 4000)
-
-latest_reg = int(df["Regime"].iloc[-1])
-reg_label = regime_names.get(latest_reg, "Neutral")
-reg_risk  = regime_risk_map.get(latest_reg, 55)
-
-crash_risk = 0.5 * vol_risk + 0.3 * sentiment_fear + 0.2 * reg_risk
-crash_risk = float(np.clip(crash_risk, 0, 100))
+vol_risk = min(100, df["volatility30"].iloc[-1] * 4000)
+reg_risk = risk_map[int(df["regime"].iloc[-1])]
+crash_risk = float(np.clip(0.5*vol_risk + 0.3*sentiment_fear + 0.2*reg_risk, 0, 100))
 
 # -------------------------------------------------------
-# METRICS DISPLAY
+# METRICS
 # -------------------------------------------------------
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Price", f"{df['ClosePrice'].iloc[-1]:,.2f}")
-c2.metric("Daily Return", f"{df['Returns'].iloc[-1]*100:,.2f} %")
-c3.metric("30D Vol", f"{df['Volatility_30d'].iloc[-1]*100:,.2f} %")
-c4.metric("Crash Risk", f"{crash_risk:,.1f} / 100")
+c1.metric("Price", f"{df['closeprice'].iloc[-1]:,.2f}")
+c2.metric("Return", f"{df['returns'].iloc[-1]*100:,.2f}%")
+c3.metric("30D Vol", f"{df['volatility30'].iloc[-1]*100:,.2f}%")
+c4.metric("Crash Risk", f"{crash_risk:.1f}/100")
 
-st.caption(f"**Regime:** {reg_label} | **Sentiment Fear:** {sentiment_fear:,.1f}")
+st.caption(
+    f"Regime: **{regime_names[int(df['regime'].iloc[-1])]}**, "
+    f"Sentiment Fear: **{sentiment_fear:.1f}**"
+)
 
-# -------------------------------------------------------
-# PRICE + REGIME CHART
-# -------------------------------------------------------
-fig_price = px.line(df, x="date", y="ClosePrice", title="Price with Market Regimes")
-fig_reg = px.scatter(df, x="date", y="ClosePrice", color=df["Regime"].map(regime_names))
-for trace in fig_reg.data:
-    fig_price.add_trace(trace)
-st.plotly_chart(fig_price, use_container_width=True)
 
 # -------------------------------------------------------
-# VOLATILITY
+# CHARTS
 # -------------------------------------------------------
-fig_vol = px.line(df, x="date", y="Volatility_30d", title="30D Realized Volatility")
-st.plotly_chart(fig_vol, use_container_width=True)
+fig1 = px.line(df, x="date", y="closeprice", title="Price with Regimes")
+fig2 = px.scatter(df, x="date", y="closeprice", color=df["regime"].map(regime_names))
+for t in fig2.data:
+    fig1.add_trace(t)
+st.plotly_chart(fig1, use_container_width=True)
+
+st.plotly_chart(px.line(df, x="date", y="volatility30", title="30D Volatility"), use_container_width=True)
+st.plotly_chart(px.line(df, x="date", y="returns", title="Daily Returns"), use_container_width=True)
 
 # -------------------------------------------------------
-# RETURNS
+# NEWS SECTION
 # -------------------------------------------------------
-fig_ret = px.line(df, x="date", y="Returns", title="Daily Returns")
-st.plotly_chart(fig_ret, use_container_width=True)
-
-# -------------------------------------------------------
-# SENTIMENT PANEL
-# -------------------------------------------------------
-st.subheader("News Sentiment")
-for h in headlines[:10]:
+st.subheader("Latest Market Headlines")
+for h in headlines:
     st.write("- " + h)
 
-st.write(f"**Average Sentiment:** {avg_sentiment:.3f}")
-st.write(f"**Sentiment Fear Score:** {sentiment_fear:.1f} / 100")
+st.write(f"Sentiment Score: **{sentiment_score:.3f}**")
+st.write(f"Fear Score: **{sentiment_fear:.1f} / 100**")
 
 st.success("Dashboard loaded successfully.")
