@@ -8,7 +8,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 # -----------------------------------------------------
-# NLTK FIX – VADER sentiment lexicon
+# NLTK Sentiment Fix
 # -----------------------------------------------------
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
@@ -24,9 +24,8 @@ analyzer = SentimentIntensityAnalyzer()
 # PAGE SETTINGS
 # -----------------------------------------------------
 st.set_page_config(page_title="AI Crash Warning System", layout="wide")
-
-st.title("🧠 AI Market Crash Warning System (V2-Lite)")
-st.caption("Volatility • Regime ML • NLP Sentiment → Crash Risk Score")
+st.title("🧠 AI Market Crash Warning System (V2 Final)")
+st.caption("Market Regimes • Volatility • NLP Sentiment → Crash Risk Score")
 
 # -----------------------------------------------------
 # ASSET SELECTION
@@ -43,7 +42,7 @@ asset_name = st.sidebar.selectbox("Select Asset", list(ASSETS.keys()))
 symbol = ASSETS[asset_name]
 
 # -----------------------------------------------------
-# SAFE NEWS FETCHING
+# SAFE NEWS FETCH
 # -----------------------------------------------------
 @st.cache_data
 def load_news():
@@ -51,16 +50,16 @@ def load_news():
         url = "https://cryptopanic.com/api/v1/posts/?auth_token=bbf69ca77e536fa8d3&public=true"
         r = requests.get(url, timeout=5).json()
         if "results" in r:
-            return [item.get("title", "Untitled") for item in r["results"]]
+            return [item.get("title", "") for item in r["results"]]
     except:
         pass
 
     return [
-        "Market remains stable with moderate volatility",
-        "Analysts see cautious sentiment among traders",
-        "No major economic shifts impacting crypto",
-        "Investors watch for global macro trends",
-        "Liquidity remains healthy across risk assets"
+        "Market shows stable conditions.",
+        "Analysts detect moderate volatility.",
+        "Investors wait for macroeconomic signals.",
+        "Crypto liquidity remains steady.",
+        "Traders cautious despite calm environment."
     ]
 
 news_titles = load_news()
@@ -85,6 +84,7 @@ sentiment_fear = max(0, (0 - avg_sentiment) * 100)
 def load_asset(symbol):
     df = yf.download(symbol, period="3y", interval="1d")
 
+    # fallback
     if df is None or df.empty:
         df = pd.DataFrame({
             "Close": [100, 102, 101, 103, 105],
@@ -93,34 +93,53 @@ def load_asset(symbol):
     else:
         df["Date"] = df.index
 
-    # Fix column names
-    if "Close" in df.columns and "ClosePrice" not in df.columns:
-        df = df.rename(columns={"Close": "ClosePrice"})
-
-    df["Returns"] = df["ClosePrice"].pct_change()
-    df["Volatility_30d"] = df["Returns"].rolling(30).std()
-
-    df = df.dropna().reset_index(drop=True)
-    return df
+    return df.reset_index(drop=True)
 
 df = load_asset(symbol)
 
 # -----------------------------------------------------
-# GUARANTEE ClosePrice COLUMN EXISTS
+# UNIVERSAL ClosePrice FIX
 # -----------------------------------------------------
-if "ClosePrice" not in df.columns:
-    if "Close" in df.columns:
-        df = df.rename(columns={"Close": "ClosePrice"})
-    elif "Adj Close" in df.columns:
-        df = df.rename(columns={"Adj Close": "ClosePrice"})
-    else:
-        st.error("No valid price column found in data.")
-        st.stop()
 
+# Flatten MultiIndex columns if present
+if isinstance(df.columns, pd.MultiIndex):
+    df.columns = ['_'.join([str(c) for c in col if c]) for col in df.columns]
+
+# Normalize column names
+df.columns = df.columns.str.lower().str.replace(" ", "").str.replace("_", "")
+
+# Debug print
+st.write("Columns in downloaded data:", list(df.columns))
+
+# Possible close column names
+possible_close_cols = [
+    "closeprice", "close", "adjclose", "closingprice",
+    "closebtc-usd", "closebtc", "price"
+]
+
+found = None
+for col in possible_close_cols:
+    if col in df.columns:
+        found = col
+        break
+
+if found is None:
+    st.error("❌ No valid Close price column found in the asset data.")
+    st.stop()
+
+# Final unified ClosePrice
+df["ClosePrice"] = df[found].astype(float)
 df = df.dropna(subset=["ClosePrice"]).reset_index(drop=True)
 
 # -----------------------------------------------------
-# REGIME DETECTION (K-Means)
+# FEATURES FOR ML
+# -----------------------------------------------------
+df["Returns"] = df["ClosePrice"].pct_change()
+df["Volatility_30d"] = df["Returns"].rolling(30).std()
+df = df.dropna().reset_index(drop=True)
+
+# -----------------------------------------------------
+# K-Means REGIME DETECTION
 # -----------------------------------------------------
 def compute_regimes(df):
     feat = df[["Returns", "Volatility_30d"]].dropna()
@@ -175,7 +194,7 @@ combined_risk = (
 combined_risk = min(100, max(0, combined_risk))
 
 # -----------------------------------------------------
-# METRICS DISPLAY
+# METRICS
 # -----------------------------------------------------
 col1, col2, col3 = st.columns(3)
 col1.metric("📉 Crash Risk", f"{combined_risk:.1f}%")
@@ -183,65 +202,48 @@ col2.metric("😨 Sentiment Fear", f"{sentiment_fear:.1f}%")
 col3.metric("📊 Regime", regime_label)
 
 # -----------------------------------------------------
-# SAFE DATA CLEAN
+# CLEAN DATA FOR PLOTTING
 # -----------------------------------------------------
-df_clean = df.copy()
-df_clean = df_clean.reset_index(drop=True)
-
-for col in df_clean.columns:
-    if col != "Date":
-        df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
-
-df_clean = df_clean.dropna(subset=["ClosePrice"])
-df_clean["Date"] = pd.to_datetime(df_clean["Date"], errors="coerce")
-df_clean = df_clean.dropna(subset=["Date"])
+df_plot = df.copy().reset_index(drop=True)
+df_plot["Date"] = pd.to_datetime(df_plot["Date"], errors="coerce")
+df_plot = df_plot.dropna(subset=["Date", "ClosePrice"])
 
 # -----------------------------------------------------
-# PRICE CHART
+# PRICE PLOT
 # -----------------------------------------------------
-st.subheader(f"{asset_name} Price Chart")
-fig_price = px.line(
-    df_clean,
-    x="Date",
-    y="ClosePrice",
-    title=f"{asset_name} Closing Price",
-)
+st.subheader("📈 Price Chart")
+fig_price = px.line(df_plot, x="Date", y="ClosePrice", title=f"{asset_name} Price")
 st.plotly_chart(fig_price, use_container_width=True)
 
 # -----------------------------------------------------
-# VOLATILITY CHART
+# VOLATILITY PLOT
 # -----------------------------------------------------
-st.subheader("Volatility (30-Day Rolling)")
-fig_vol = px.line(
-    df_clean,
-    x="Date",
-    y="Volatility_30d",
-    title="Realized Volatility",
-)
+st.subheader("📉 30-Day Volatility")
+fig_vol = px.line(df_plot, x="Date", y="Volatility_30d", title="Volatility (30-Day Rolling)")
 st.plotly_chart(fig_vol, use_container_width=True)
 
 # -----------------------------------------------------
 # REGIME PLOT
 # -----------------------------------------------------
-st.subheader("Regime Classification")
+st.subheader("🟦 Regime Classification")
 fig_reg = px.scatter(
-    df_clean,
+    df_plot,
     x="Date",
     y="ClosePrice",
-    color=df_clean["Regime"].map(names),
-    title="Regimes Over Time",
+    color=df_plot["Regime"].map(names),
+    title="Market Regimes",
 )
 st.plotly_chart(fig_reg, use_container_width=True)
 
 # -----------------------------------------------------
-# NEWS & SENTIMENT
+# NEWS + SENTIMENT
 # -----------------------------------------------------
-st.subheader("📰 Latest Headlines")
+st.subheader("📰 Latest Market News")
 for t in news_titles:
     st.write("• " + t)
 
 st.subheader("Sentiment Distribution")
-fig_sent = px.histogram(sent_scores, nbins=20, title="Sentiment Histogram")
+fig_sent = px.histogram(sent_scores, nbins=20)
 st.plotly_chart(fig_sent, use_container_width=True)
 
-st.success("App running successfully. No errors!")
+st.success("App running successfully! 🎉")
