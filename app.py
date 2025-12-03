@@ -190,7 +190,7 @@ def detect_regimes(df: pd.DataFrame, n_clusters: int = 3):
 # 4. Streamlit App Layout
 # =========================================================
 st.set_page_config(page_title="AI Market Crash Early-Warning Terminal", layout="wide")
-st.title("⚠️ AI Market Crash Early-Warning Terminal")
+st.title(" AI Market Crash Early-Warning Terminal")
 
 # Sidebar: asset selector
 asset = st.sidebar.selectbox(
