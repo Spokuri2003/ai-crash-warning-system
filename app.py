@@ -203,4 +203,4 @@ for h in headlines:
     st.write("•", h)
 
 
-st.success("App Running Successfully 🎉 — No Plotly Errors!")
+st.success("App Running Successfully ")
