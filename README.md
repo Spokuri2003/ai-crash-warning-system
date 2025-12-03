@@ -96,7 +96,7 @@ Works as a strong portfolio project for:
 ---
 
 
-## 📸 Screenshots
+## Screenshots
 
 ### **1. Dashboard Overview**
 ![dashboard_overview](images/dashboard_overview.png)
@@ -115,7 +115,12 @@ Works as a strong portfolio project for:
 
 
 ---
+##  Live Demo
+Try the full interactive dashboard here:
 
+🔗 https://ai-crash-warning-system-rse6lqbxsuljz5qkst2kso.streamlit.app/
+
+---
 ##  Future Improvements
 
 - Integrate **FinBERT** for more accurate financial sentiment  
