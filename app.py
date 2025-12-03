@@ -10,7 +10,7 @@ import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 # =========================================================
-#  FIX: Download VADER if missing
+# FIX: Ensure VADER lexicon exists
 # =========================================================
 try:
     nltk.data.find("sentiment/vader_lexicon.zip")
@@ -20,7 +20,7 @@ except LookupError:
 analyzer = SentimentIntensityAnalyzer()
 
 # =========================================================
-# 1. Load Price Data (SAFE VERSION)
+# SAFE PRICE DATA LOADER (no errors ever)
 # =========================================================
 @st.cache_data
 def load_price_data(symbol):
@@ -29,12 +29,14 @@ def load_price_data(symbol):
     if df.empty:
         return pd.DataFrame()
 
-    df = df.reset_index()
+    # If Date is index → convert to column
+    if not isinstance(df.index, pd.RangeIndex):
+        df = df.reset_index()
 
-    # FIX: Convert ALL column names to strings
+    # Convert column names to string
     df.columns = [str(c).lower().replace(" ", "_") for c in df.columns]
 
-    # Detect close price column (close or adj_close etc.)
+    # Detect any close price column
     close_col = None
     for c in df.columns:
         if "close" in c:
@@ -44,23 +46,33 @@ def load_price_data(symbol):
     if close_col is None:
         return pd.DataFrame()
 
-    df = df[["date", close_col]].dropna()
-    df.rename(columns={close_col: "close_price"}, inplace=True)
+    # Detect date column
+    date_col = None
+    for c in df.columns:
+        if "date" in c:
+            date_col = c
+            break
+
+    if date_col is None:
+        return pd.DataFrame()
+
+    df = df[[date_col, close_col]].dropna()
+    df.rename(columns={date_col: "date", close_col: "close_price"}, inplace=True)
 
     return df
 
 
 # =========================================================
-# 2. Smart Sentiment System (Not always 100)
+# SMART SENTIMENT SYSTEM
 # =========================================================
 def smart_sentiment(text_list):
     positive_words = [
-        "up","growth","bull","optimistic","surge","rally",
-        "strong","support","recover","positive","gain"
+        "up", "growth", "bull", "optimistic", "surge", "rally",
+        "strong", "support", "recover", "positive", "gain"
     ]
     negative_words = [
-        "risk","fear","crash","panic","selloff","bear","volatile",
-        "down","collapse","decline","drop","fall","uncertain"
+        "risk", "fear", "crash", "panic", "selloff", "bear", "volatile",
+        "down", "collapse", "decline", "drop", "fall", "uncertain"
     ]
 
     scores = []
@@ -83,15 +95,13 @@ def smart_sentiment(text_list):
             scores.append(score / hits)
 
     avg = np.mean(scores) if scores else 0
-
-    # Convert sentiment to fear index (0–100)
     fear = int(np.interp(-avg, [-1, 1], [100, 0]))
 
     return avg, fear
 
 
 # =========================================================
-# 3. Load Crypto News
+# LOAD NEWS (Cryptopanic)
 # =========================================================
 @st.cache_data
 def load_news():
@@ -104,7 +114,7 @@ def load_news():
 
 
 # =========================================================
-# 4. Regime Classification (Stable Version)
+# REGIME CLASSIFICATION
 # =========================================================
 def classify_regimes(df, labels, centers):
     df["regime"] = labels
@@ -116,7 +126,7 @@ def classify_regimes(df, labels, centers):
     neutral = sorted_vol[1]
     stress = sorted_vol[2]
 
-    regime_names = {
+    names = {
         calm: "Calm",
         neutral: "Neutral",
         stress: "High-Stress"
@@ -128,11 +138,11 @@ def classify_regimes(df, labels, centers):
         stress: 85
     }
 
-    return df, regime_names, risk_map
+    return df, names, risk_map
 
 
 # =========================================================
-# STREAMLIT APP UI
+# STREAMLIT UI
 # =========================================================
 st.set_page_config(page_title="AI Crash Warning System", layout="wide")
 st.title("⚠️ AI Market Crash Early-Warning System")
@@ -143,74 +153,62 @@ asset = st.selectbox(
 )
 
 # =========================================================
-# Load Data
+# LOAD DATA
 # =========================================================
 df = load_price_data(asset)
 
 if df.empty:
-    st.error("❌ No price data available for this asset.")
+    st.error("❌ Error: No price data for this asset.")
     st.stop()
 
 # =========================================================
-# Compute Returns + Volatility
+# RETURNS + VOLATILITY
 # =========================================================
 df["returns"] = df["close_price"].pct_change()
-df["volatility30"] = df["returns"].rolling(30).std()
+df["vol30"] = df["returns"].rolling(30).std()
 df = df.dropna()
 
 # =========================================================
-# KMeans Regime Detection
+# REGIME MODEL (KMEANS)
 # =========================================================
-X = df[["returns", "volatility30"]].values
+X = df[["returns", "vol30"]].values
 X = StandardScaler().fit_transform(X)
 
 kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
 labels = kmeans.fit_predict(X)
 centers = kmeans.cluster_centers_
 
-df, regime_names, risk_map = classify_regimes(df, labels, centers)
+df, names, risk_map = classify_regimes(df, labels, centers)
 
-latest_label = int(df["regime"].iloc[-1])
-latest_regime = regime_names[latest_label]
-crash_risk = risk_map[latest_label]
+last_label = int(df["regime"].iloc[-1])
+regime = names[last_label]
+risk = risk_map[last_label]
 
 # =========================================================
-# Sentiment Analysis
+# SENTIMENT
 # =========================================================
-news_headlines = load_news()
-sent_score, sentiment_fear = smart_sentiment(news_headlines)
+news = load_news()
+sent_score, fear = smart_sentiment(news)
 
 # =========================================================
 # DISPLAY RESULTS
 # =========================================================
-col1, col2, col3 = st.columns(3)
+c1, c2, c3 = st.columns(3)
+c1.metric("Market Regime", regime)
+c2.metric("Crash Risk", f"{risk}/100")
+c3.metric("News Fear Index", f"{fear}/100")
 
-col1.metric("Market Regime", latest_regime)
-col2.metric("Crash Risk", f"{crash_risk}/100")
-col3.metric("News Fear Index", f"{sentiment_fear}/100")
+st.subheader("📈 Price Chart")
+st.plotly_chart(px.line(df, x="date", y="close_price"), use_container_width=True)
 
-# ---------------------------------------------------------
-# Price Chart
-# ---------------------------------------------------------
-st.subheader("📈 Closing Price")
-fig_price = px.line(df, x="date", y="close_price", title=f"{asset} – Closing Price")
-st.plotly_chart(fig_price, use_container_width=True)
-
-# ---------------------------------------------------------
-# Volatility Chart
-# ---------------------------------------------------------
 st.subheader("📉 30-Day Volatility")
-fig_vol = px.line(df, x="date", y="volatility30", title=f"{asset} – 30-Day Volatility")
-st.plotly_chart(fig_vol, use_container_width=True)
+st.plotly_chart(px.line(df, x="date", y="vol30"), use_container_width=True)
 
-# ---------------------------------------------------------
-# News Headlines
-# ---------------------------------------------------------
-st.subheader("📰 Latest Market News")
-if news_headlines:
-    for n in news_headlines[:10]:
+st.subheader("📰 Recent Headlines")
+if news:
+    for n in news[:10]:
         st.write("•", n)
 else:
-    st.info("No news available.")
+    st.info("No headlines available.")
 
-st.success("✔ System Working – No Errors")
+st.success("✔ System Running — No Errors")
