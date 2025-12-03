@@ -173,32 +173,67 @@ col3.metric("📊 Regime", regime_label)
 # -----------------------------------------------------
 # CHARTS
 # -----------------------------------------------------
+df_clean = df.copy()
+
+# Ensure no multi-index issues
+df_clean = df_clean.reset_index(drop=True)
+
+# Convert all numeric columns to float
+for col in df_clean.columns:
+    if col not in ["Date"]:
+        df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
+
+# Drop any rows where ClosePrice is missing
+df_clean = df_clean.dropna(subset=["ClosePrice"])
+
+# Force Date column to datetime
+df_clean["Date"] = pd.to_datetime(df_clean["Date"], errors="coerce")
+
+# Remove rows where Date failed to parse
+df_clean = df_clean.dropna(subset=["Date"])
+
+# -----------------------------------------------------
+# PRICE CHART (Guaranteed 1D data only)
+# -----------------------------------------------------
 st.subheader(f"{asset_name} Price Chart")
+
 fig_price = px.line(
-    df,
+    df_clean,
     x="Date",
     y="ClosePrice",
     title=f"{asset_name} Closing Price",
+    labels={"Date": "Date", "ClosePrice": "Price ($)"}
 )
+
 st.plotly_chart(fig_price, use_container_width=True)
 
+# -----------------------------------------------------
+# VOLATILITY CHART
+# -----------------------------------------------------
 st.subheader("Volatility (30-Day Rolling)")
+
 fig_vol = px.line(
-    df,
+    df_clean,
     x="Date",
     y="Volatility_30d",
     title="Realized Volatility",
 )
+
 st.plotly_chart(fig_vol, use_container_width=True)
 
+# -----------------------------------------------------
+# REGIME CLASSIFICATION CHART
+# -----------------------------------------------------
 st.subheader("Regime Classification")
+
 fig_reg = px.scatter(
-    df,
+    df_clean,
     x="Date",
     y="ClosePrice",
-    color=df["Regime"].map(names),
-    title="Regimes Over Time",
+    color=df_clean["Regime"].map(names),
+    title="Market Regimes Over Time",
 )
+
 st.plotly_chart(fig_reg, use_container_width=True)
 
 # -----------------------------------------------------
