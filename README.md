@@ -108,7 +108,7 @@ Works as a strong portfolio project for:
 ![volatility_chart](volatility_chart.png)
 
 ### **4. Regime Classification**
-![regime_detecton](regime_detecton.png)
+![regime_detection](regime_detecton.png)
 
 ### **5. Sentiment Panel**
 ![sentiment-risk](sentiment-risk.png)
