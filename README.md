@@ -121,6 +121,27 @@ Try the full interactive dashboard here:
 🔗 https://ai-crash-warning-system-rse6lqbxsuljz5qkst2kso.streamlit.app/
 
 ---
+##  Tech Stack
+
+- **Python** — Data engineering & ML
+- **Streamlit** — Web app framework
+- **Plotly** — Interactive visualizations
+- **NLTK** — Sentiment analysis
+- **scikit-learn** — K-Means clustering
+- **yfinance** — Market data ingestion
+
+ ---
+ ##  Real-World Use Cases
+
+- Early-warning system for portfolio managers  
+- Risk dashboards for hedge funds  
+- Retail trading platforms (Robinhood, Binance, Coinbase)  
+- Quant research teams monitoring regime shifts  
+- Crypto risk analytics  
+- Volatility forecasting modules
+
+-----
+
 ##  Future Improvements
 
 - Integrate **FinBERT** for more accurate financial sentiment  
