@@ -87,6 +87,16 @@ sentiment_fear = max(0, (0 - avg_sentiment) * 100)
 # -----------------------------------------------------
 @st.cache_data
 def load_asset(symbol):
+    if "ClosePrice" not in df.columns:
+    if "Close" in df.columns:
+        df = df.rename(columns={"Close": "ClosePrice"})
+    elif "Adj Close" in df.columns:
+        df["ClosePrice"] = df["Adj Close"]
+    else:
+        raise ValueError("Price column not found in downloaded data.")
+
+# Drop invalid rows
+df = df.dropna(subset=["ClosePrice"]).reset_index(drop=True)
     df = yf.download(symbol, period="3y", interval="1d")
     if df is None or df.empty:
         # fallback dummy
