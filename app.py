@@ -407,10 +407,4 @@ if len(vader_scores) > 0:
         vader_scores,
         nbins=20,
         title="Sentiment Score Histogram",
-        labels={"value": "VADER compound score"},
-    )
-    st.plotly_chart(fig_sent, use_container_width=True)
-else:
-    st.info("No sentiment scores available to plot.")
-
-st.caption("This dashboard is for research and educational purposes only. Not investment advice.")
+        labels={"value": "VADER
