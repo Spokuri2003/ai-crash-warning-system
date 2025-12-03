@@ -138,17 +138,21 @@ combined_risk = min(100, combined_risk)
 # -----------------------------
 # TOP METRICS ROW
 # -----------------------------
+try:
+    latest_price = btc["Close"].iloc[-1]
+except:
+    latest_price = float("nan")
+
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.metric(" Crash Risk", f"{combined_risk:.1f}%")
+    st.metric("📉 Crash Risk", f"{combined_risk:.1f}%")
 
 with col2:
-    st.metric(" Sentiment Fear", f"{sentiment_fear:.1f}%")
+    st.metric("🧠 Sentiment Fear", f"{sentiment_fear:.1f}%")
 
 with col3:
-    st.metric(" BTC Price", f"${btc['Close'].iloc[-1]:,.2f}")
-
+    st.metric("💰 BTC Price", f"${latest_price:,.2f}" if not np.isnan(latest_price) else "N/A")
 st.markdown("---")
 
 # -----------------------------
