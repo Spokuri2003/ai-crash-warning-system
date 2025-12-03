@@ -4,163 +4,196 @@ import numpy as np
 import yfinance as yf
 import requests
 import plotly.express as px
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 st.set_page_config(page_title="AI Crash Warning System", layout="wide")
 
-# ---------------------------------------------------
-# SAFE NEWS API
-# ---------------------------------------------------
+st.title("🧠 AI Market Crash Warning System")
+st.caption("Volatility + Regime ML + Sentiment NLP for Market Stress Detection")
+
+# -------------------------------------------------
+# ASSET SELECTION
+# -------------------------------------------------
+ASSETS = {
+    "Bitcoin (BTC-USD)": "BTC-USD",
+    "Ethereum (ETH-USD)": "ETH-USD",
+    "S&P 500 (^GSPC)": "^GSPC",
+    "Nasdaq 100 (^NDX)": "^NDX",
+    "Gold (GC=F)": "GC=F"
+}
+
+asset_name = st.sidebar.selectbox("Select Asset", list(ASSETS.keys()))
+symbol = ASSETS[asset_name]
+
+# -------------------------------------------------
+# LOAD NEWS (SAFE)
+# -------------------------------------------------
 @st.cache_data
 def load_news():
     try:
         url = "https://cryptopanic.com/api/v1/posts/?auth_token=bbf69ca77e536fa8d3&public=true"
         r = requests.get(url, timeout=5).json()
-        if "results" in r and len(r["results"]) > 0:
-            return [p.get("title", "No Title") for p in r["results"]]
-        raise ValueError("API returned empty results")
+        if "results" in r:
+            return [item.get("title", "Untitled") for item in r["results"]]
     except:
-        return [
-            "Market stable; no major events reported",
-            "Investors cautious as BTC consolidates",
-            "Neutral sentiment across major digital assets",
-            "Analysts expect muted volatility",
-            "Crypto markets awaiting macroeconomic news",
-        ]
+        pass
 
-news_titles = load_news()
+    return [
+        "Market calm with no significant movements",
+        "Analysts see mixed sentiment in global markets",
+        "Liquidity stable; fear low among traders",
+        "Crypto traders remain cautious amid uncertainty",
+        "Macro news expected to affect markets"
+    ]
 
-# ---------------------------------------------------
-# SAFE BTC PRICE LOADING
-# ---------------------------------------------------
-@st.cache_data
-def load_btc():
-    try:
-        data = yf.download("BTC-USD", period="1y")
-        if data is None or data.empty:
-            raise ValueError("Empty BTC data")
+news = load_news()
 
-        # Standard formatting
-        data = data.rename(columns=str.capitalize)
-
-        # Feature Engineering
-        data["Returns"] = data["Close"].pct_change()
-        data["Volatility_30d"] = data["Returns"].rolling(30).std()
-
-        # Clean output
-        data = data.dropna()
-
-        # Ensure DatetimeIndex
-        data.index = pd.to_datetime(data.index)
-
-        return data
-
-    except:
-        # Fallback minimal dataset (never crashes)
-        fallback = pd.DataFrame({
-            "Close": [40000, 40500, 39800, 41000, 42000],
-            "Returns": [0.01, -0.02, 0.03, 0.01, 0.02],
-            "Volatility_30d": [0.02, 0.021, 0.022, 0.023, 0.024],
-        })
-        fallback.index = pd.date_range(
-            end=pd.Timestamp.today(),
-            periods=5
-        )
-        return fallback
-
-btc = load_btc()
-
-# ---------------------------------------------------
-# SENTIMENT ANALYSIS
-# ---------------------------------------------------
+# -------------------------------------------------
+# SENTIMENT NLP
+# -------------------------------------------------
 analyzer = SentimentIntensityAnalyzer()
 
-def compute_sentiment(titles):
-    scores = []
-    for t in titles:
-        try:
-            scores.append(analyzer.polarity_scores(t)["compound"])
-        except:
-            scores.append(0)
-    return scores
+scores = []
+for t in news:
+    try:
+        scores.append(analyzer.polarity_scores(t)["compound"])
+    except:
+        scores.append(0)
 
-sentiment_scores = compute_sentiment(news_titles)
-sentiment_fear = (1 - ((np.mean(sentiment_scores) + 1) / 2)) * 100
+avg_sentiment = np.mean(scores)
+sentiment_fear = max(0, (0 - avg_sentiment) * 100)
 
-# ---------------------------------------------------
-# CRASH RISK SCORE
-# ---------------------------------------------------
-latest_vol = float(btc["Volatility_30d"].iloc[-1])
-vol_risk = min(latest_vol * 1200, 100)  # smaller scaling
+# -------------------------------------------------
+# PRICE DATA LOADING (SAFE)
+# -------------------------------------------------
+@st.cache_data
+def load_price(sym):
+    df = yf.download(sym, period="3y", interval="1d")
+    if df is None or df.empty:
+        df = pd.DataFrame({
+            "Close": [100, 101, 99, 103, 104],
+        })
+        df["Date"] = pd.date_range(end=pd.Timestamp.today(), periods=len(df))
+        df["Returns"] = df["Close"].pct_change()
+        df["Volatility_30d"] = df["Returns"].rolling(30).std()
+        return df.dropna()
 
-combined_risk = (0.6 * vol_risk) + (0.4 * sentiment_fear)
+    df = df.rename(columns={"Close": "ClosePrice"})
+    df["Date"] = df.index
+    df["Returns"] = df["ClosePrice"].pct_change()
+    df["Volatility_30d"] = df["Returns"].rolling(30).std()
+    df = df.dropna().reset_index(drop=True)
+    return df
 
-# ---------------------------------------------------
-# LATEST PRICE (SAFE)
-# ---------------------------------------------------
-try:
-    latest_price = float(btc["Close"].iloc[-1])
-    price_display = f"${latest_price:,.2f}"
-except:
-    price_display = "N/A"
+df = load_price(symbol)
 
-# ---------------------------------------------------
-# HEADER
-# ---------------------------------------------------
-st.title("AI Early-Warning System for Market Stress")
+# -------------------------------------------------
+# K-MEANS REGIME CLASSIFICATION
+# -------------------------------------------------
+def compute_regimes(data):
+    feat = data[["Returns", "Volatility_30d"]].dropna()
+    if len(feat) < 50:
+        data["Regime"] = 1
+        return data, {"1": "Neutral"}, {1: 50}
 
-col1, col2, col3 = st.columns(3)
-col1.metric("Crash Risk", f"{combined_risk:.1f}%")
-col2.metric("Sentiment Fear", f"{sentiment_fear:.1f}%")
-col3.metric("BTC Price", price_display)
+    scaler = StandardScaler()
+    X = scaler.fit_transform(feat)
 
-st.markdown("---")
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+    labels = kmeans.fit_predict(X)
 
-# ---------------------------------------------------
-# VOLATILITY CHART (WITH SAFEGUARDS)
-# ---------------------------------------------------
-if "Volatility_30d" in btc.columns and len(btc) > 1:
-    fig_vol = px.line(
-        x=btc.index,
-        y=btc["Volatility_30d"],
-        title="BTC 30-Day Volatility",
-        labels={"x": "Date", "y": "Volatility"},
-    )
-    st.plotly_chart(fig_vol, use_container_width=True)
-else:
-    st.warning("Volatility data unavailable.")
+    data = data.copy()
+    data["Regime"] = -1
+    data.loc[feat.index, "Regime"] = labels
 
-# ---------------------------------------------------
-# PRICE CHART
-# ---------------------------------------------------
-if "Close" in btc.columns and len(btc) > 1:
-    fig_price = px.line(
-        x=btc.index,
-        y=btc["Close"],
-        title="BTC Closing Price",
-        labels={"x": "Date", "y": "Close Price"},
-    )
-    st.plotly_chart(fig_price, use_container_width=True)
-else:
-    st.warning("Price data unavailable.")
+    # regime interpretation
+    centers = pd.DataFrame(kmeans.cluster_centers_, columns=["ret", "vol"])
+    centers["stress"] = centers["vol"] - centers["ret"]
+    order = centers.sort_values("stress", ascending=False).index.tolist()
 
-st.markdown("---")
+    names = {}
+    weights = {}
+    mapping = ["High-Stress", "Neutral", "Calm"]
+    risk_map = [85, 50, 25]
 
-# ---------------------------------------------------
-# SENTIMENT DISTRIBUTION HISTOGRAM
-# ---------------------------------------------------
-fig_sent = px.histogram(
-    sentiment_scores,
-    nbins=15,
-    title="News Sentiment Distribution",
+    for i, cluster in enumerate(order):
+        names[cluster] = mapping[i]
+        weights[cluster] = risk_map[i]
+
+    return data, names, weights
+
+df, names, weights = compute_regimes(df)
+
+# -------------------------------------------------
+# RISK SCORE
+# -------------------------------------------------
+latest_vol = df["Volatility_30d"].iloc[-1]
+vol_risk = min(100, latest_vol * 2500)
+
+latest_regime = df["Regime"].iloc[-1]
+regime_label = names.get(latest_regime, "Neutral")
+regime_risk = weights.get(latest_regime, 50)
+
+combined_risk = (
+    0.5 * vol_risk +
+    0.3 * sentiment_fear +
+    0.2 * regime_risk
 )
-st.plotly_chart(fig_sent, use_container_width=True)
 
-# ---------------------------------------------------
-# HEADLINES
-# ---------------------------------------------------
-st.subheader("News Headlines Used in Sentiment Analysis")
-for t in news_titles:
-    st.write("• " + t)
+combined_risk = max(0, min(100, combined_risk))
+
+# -------------------------------------------------
+# METRICS DISPLAY
+# -------------------------------------------------
+col1, col2, col3 = st.columns(3)
+
+col1.metric("📉 Crash Risk", f"{combined_risk:.1f}%")
+col2.metric("🧠 Sentiment Fear", f"{sentiment_fear:.1f}%")
+col3.metric("📊 Regime", regime_label)
+
+# -------------------------------------------------
+# CHARTS
+# -------------------------------------------------
+st.subheader(f"{asset_name} Price Chart")
+
+fig_price = px.line(
+    df,
+    x="Date",
+    y="ClosePrice",
+    title=f"{asset_name} Closing Price",
+)
+st.plotly_chart(fig_price, use_container_width=True)
+
+st.subheader("Volatility (30-Day Rolling)")
+fig_vol = px.line(
+    df,
+    x="Date",
+    y="Volatility_30d",
+    title="Realized Volatility",
+)
+st.plotly_chart(fig_vol, use_container_width=True)
+
+st.subheader("Regime Over Time")
+fig_reg = px.scatter(
+    df,
+    x="Date",
+    y="ClosePrice",
+    color=df["Regime"].map(names),
+    title="Regime Classification",
+)
+st.plotly_chart(fig_reg, use_container_width=True)
+
+# -------------------------------------------------
+# NEWS & SENTIMENT
+# -------------------------------------------------
+st.subheader("📰 Market Headlines")
+for n in news:
+    st.write("• " + n)
+
+st.subheader("Sentiment Distribution")
+fig_sent = px.histogram(scores, nbins=20, title="Sentiment Histogram")
+st.plotly_chart(fig_sent, use_container_width=True)
 
 
