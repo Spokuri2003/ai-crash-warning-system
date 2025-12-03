@@ -1,92 +1,118 @@
-# AI Early-Warning System for Market Stress
+# AI Market Crash Warning System
 
-This project provides a lightweight, real-time demonstration of an early-warning signal for market stress.  
-The system combines Bitcoin price volatility with sentiment extracted from live crypto news to generate a simple crash-risk estimate.  
-The focus is on feature engineering, data acquisition, and real-time analytics—not long-horizon backtesting.
-
----
-
-## Overview
-
-The application integrates two primary components:
-
-1. **Market Volatility**  
-   - Uses 30-day realized volatility derived from BTC-USD daily returns.  
-   - Acts as a proxy for market uncertainty and risk.
-
-2. **News Sentiment Analysis**  
-   - Fetches current crypto news headlines via a public API.  
-   - Applies VADER (NLP) to compute headline-level sentiment scores.  
-   - Aggregates sentiment into a "fear index."
-
-A combined score is generated to approximate near-term market stress conditions.  
-The project is structured for clarity, extensibility, and public deployment using Streamlit.
+A real-time market risk intelligence dashboard combining volatility modeling, unsupervised regime detection, and sentiment analysis.  
+Designed to reflect the type of compact, multi-signal risk tools used inside quantitative hedge funds.
 
 ---
 
-## Features
+##  Project Summary
 
-- Real-time BTC-USD price and volatility
-- Headline-level sentiment scoring
-- Aggregated sentiment-based “fear” metric
-- Combined volatility + sentiment risk indicator
-- Interactive charts (Plotly)
-- Live news feed table
-- Automated model interpretation (“low / moderate / high stress”)
-- Fully deployable on Streamlit Cloud
+Markets move between calm, neutral, and stressed regimes.  
+This system analyzes **price data**, **volatility structure**, and **news sentiment** to generate a real-time **Crash Risk Score** (0–100).
 
----
+The model evaluates:
 
-## Tech Stack
+1. **Volatility Risk** – sudden increases in realized volatility  
+2. **Market Regime** – clustering returns and volatility into structural states  
+3. **Sentiment Weakness** – NLP on current financial headlines  
 
-- **Python**
-- **Streamlit** (web application)
-- **yfinance** (market data)
-- **Pandas / NumPy** (feature engineering)
-- **VADER Sentiment** (NLP)
-- **Plotly** (interactive visualization)
-- **Requests** (API integration)
+All signals are aggregated into a unified risk indicator and visualized using Streamlit.
 
 ---
 
-## Running the App Locally
+##  Features
 
-```bash
+### **Market Data Pipeline**
+- Pulls 3 years of daily asset data from Yahoo Finance  
+- Computes:
+  - Close-to-close returns  
+  - 30-day realized volatility  
+- Cleans missing values and stabilizes the dataset  
+
+### **Regime Classification (Machine Learning)**
+Unsupervised clustering using **KMeans** on:
+- Daily returns  
+- 30-day volatility  
+
+Regimes are mapped to:
+- **High-Stress (Red)**
+- **Neutral (Yellow)**
+- **Calm (Green)**
+
+### **Sentiment Analysis (NLP)**
+- Real-time financial headlines fetched from Yahoo Finance Search  
+- VADER sentiment model to compute:
+  - Polarity  
+  - Compound score  
+  - Fear Score (scaled sentiment weakness)
+
+### **Crash Risk Model**
+The final risk score weights:
+- 50% → Volatility Risk  
+- 30% → Sentiment Fear  
+- 20% → Regime Risk  
+
+Output is a **0–100 Crash Probability Index**.
+
+### **Interactive Dashboard**
+The Streamlit app displays:
+- Price chart  
+- 30-day volatility chart  
+- Real-time risk metrics  
+- Market headlines  
+- Current regime classification  
+- Sentiment status  
+
+---
+
+## 🛠 Tech Stack
+
+**Languages & Tools:**  
+Python, Streamlit, Pandas, NumPy, yfinance, Plotly, scikit-learn, NLTK
+
+---
+
+##  How to Run
 pip install -r requirements.txt
 streamlit run app.py
-```
+---
+
+## 📈 Use Cases
+
+This project demonstrates:
+- Real-time risk monitoring  
+- Multi-factor modeling  
+- Market regime classification  
+- Applied NLP for financial signals  
+- Interactive dashboards for decision support  
+
+Works as a strong portfolio project for:
+- Quantitative Research  
+- Data Science  
+- Risk Modeling  
+- Financial Engineering  
+- Market Analysis  
 
 ---
 
-## Repository Structure
+## 🔮 Future Improvements
 
-```
-ai-crash-warning-system/
-│
-├── app.py               # Streamlit app
-├── requirements.txt     # Dependencies
-└── README.md            # Project documentation
-```
-
----
-
-## Future Work
-
-The current version is intentionally minimal. Potential next steps include:
-
-- Multi-asset integration (S&P 500, NASDAQ, Gold, VIX)
-- FinBERT or LLM-based sentiment modeling
-- Regime classification (HMM/K-Means)
-- Correlation breakdown and contagion indicators
-- Feature importance and ML-based crash probability models
-- Multi-page Streamlit interface (stress dashboard, asset panels)
-- Automated alerts (email / webhook)
+- Integrate **FinBERT** for more accurate financial sentiment  
+- Add options-based risk (VIX, skew, implied volatility)  
+- Use LSTM / Transformer models for future regime forecasting  
+- Multi-asset contagion detection (correlation stress)  
+- Include macroeconomic data (yields, spreads, PMI, employment)  
+- Portfolio-level risk aggregation  
+- Shock scenarios & Monte Carlo stress simulation  
 
 ---
 
-## Author
+## 👤 Author
 
 **Swathi Pokuri**  
-Data Science & Quantitative Analysis  
-GitHub: https://github.com/Spokuri2003
+Data Science • Quantitative Modeling  
+📧 Email: **swathicac1@gmail.com**  
+🔗 GitHub: https://github.com/Spokuri2003  
 
+
+---
