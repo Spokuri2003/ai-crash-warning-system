@@ -65,7 +65,7 @@ The Streamlit app displays:
 
 ---
 
-## 🛠 Tech Stack
+##  Tech Stack
 
 **Languages & Tools:**  
 Python, Streamlit, Pandas, NumPy, yfinance, Plotly, scikit-learn, NLTK
@@ -77,7 +77,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ---
 
-## 📈 Use Cases
+##  Use Cases
 
 This project demonstrates:
 - Real-time risk monitoring  
@@ -95,7 +95,28 @@ Works as a strong portfolio project for:
 
 ---
 
-## 🔮 Future Improvements
+
+## 📸 Screenshots
+
+### **1. Dashboard Overview**
+![Dashboard Overview](images/dashboard_overview.png)
+
+### **2. Price Chart**
+![Price Chart](images/price_chart.png)
+
+### **3. Volatility (30-Day Rolling)**
+![Volatility Chart](images/volatility_chart.png)
+
+### **4. Regime Classification**
+![Regime Detection](images/regime_detection.png)
+
+### **5. Sentiment Panel**
+![Sentiment Panel](images/sentiment-risk.png)
+
+
+---
+
+##  Future Improvements
 
 - Integrate **FinBERT** for more accurate financial sentiment  
 - Add options-based risk (VIX, skew, implied volatility)  
@@ -107,7 +128,7 @@ Works as a strong portfolio project for:
 
 ---
 
-## 👤 Author
+##  Author
 
 **Swathi Pokuri**  
 Data Science • Quantitative Modeling  
