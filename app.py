@@ -8,7 +8,7 @@ from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
 # -----------------------------------------------------
-# NLTK FIX – Ensures VADER sentiment lexicon is available
+# NLTK FIX – VADER sentiment lexicon
 # -----------------------------------------------------
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
@@ -23,10 +23,7 @@ analyzer = SentimentIntensityAnalyzer()
 # -----------------------------------------------------
 # PAGE SETTINGS
 # -----------------------------------------------------
-st.set_page_config(
-    page_title="AI Crash Warning System",
-    layout="wide"
-)
+st.set_page_config(page_title="AI Crash Warning System", layout="wide")
 
 st.title("🧠 AI Market Crash Warning System (V2-Lite)")
 st.caption("Volatility • Regime ML • NLP Sentiment → Crash Risk Score")
@@ -46,7 +43,7 @@ asset_name = st.sidebar.selectbox("Select Asset", list(ASSETS.keys()))
 symbol = ASSETS[asset_name]
 
 # -----------------------------------------------------
-# SAFE NEWS FETCHING (with fallback)
+# SAFE NEWS FETCHING
 # -----------------------------------------------------
 @st.cache_data
 def load_news():
@@ -58,7 +55,6 @@ def load_news():
     except:
         pass
 
-    # fallback headlines
     return [
         "Market remains stable with moderate volatility",
         "Analysts see cautious sentiment among traders",
@@ -83,49 +79,55 @@ avg_sentiment = np.mean(sent_scores)
 sentiment_fear = max(0, (0 - avg_sentiment) * 100)
 
 # -----------------------------------------------------
-# PRICE DATA (3 years)
+# PRICE DATA LOADING
 # -----------------------------------------------------
 @st.cache_data
 def load_asset(symbol):
-    if "ClosePrice" not in df.columns:
-    if "Close" in df.columns:
-        df = df.rename(columns={"Close": "ClosePrice"})
-    elif "Adj Close" in df.columns:
-        df["ClosePrice"] = df["Adj Close"]
-    else:
-        raise ValueError("Price column not found in downloaded data.")
-
-# Drop invalid rows
-df = df.dropna(subset=["ClosePrice"]).reset_index(drop=True)
     df = yf.download(symbol, period="3y", interval="1d")
+
     if df is None or df.empty:
-        # fallback dummy
         df = pd.DataFrame({
-            "ClosePrice": [100, 102, 101, 103, 105],
+            "Close": [100, 102, 101, 103, 105],
             "Date": pd.date_range(end=pd.Timestamp.today(), periods=5)
         })
-        df["Returns"] = df["ClosePrice"].pct_change()
-        df["Volatility_30d"] = df["Returns"].rolling(30).std()
-        return df.dropna()
+    else:
+        df["Date"] = df.index
 
-    df = df.rename(columns={"Close": "ClosePrice"})
-    df["Date"] = df.index
+    # Fix column names
+    if "Close" in df.columns and "ClosePrice" not in df.columns:
+        df = df.rename(columns={"Close": "ClosePrice"})
+
     df["Returns"] = df["ClosePrice"].pct_change()
     df["Volatility_30d"] = df["Returns"].rolling(30).std()
+
     df = df.dropna().reset_index(drop=True)
     return df
 
 df = load_asset(symbol)
 
 # -----------------------------------------------------
-# K-MEANS REGIME DETECTION
+# GUARANTEE ClosePrice COLUMN EXISTS
+# -----------------------------------------------------
+if "ClosePrice" not in df.columns:
+    if "Close" in df.columns:
+        df = df.rename(columns={"Close": "ClosePrice"})
+    elif "Adj Close" in df.columns:
+        df = df.rename(columns={"Adj Close": "ClosePrice"})
+    else:
+        st.error("No valid price column found in data.")
+        st.stop()
+
+df = df.dropna(subset=["ClosePrice"]).reset_index(drop=True)
+
+# -----------------------------------------------------
+# REGIME DETECTION (K-Means)
 # -----------------------------------------------------
 def compute_regimes(df):
     feat = df[["Returns", "Volatility_30d"]].dropna()
 
     if len(feat) < 50:
         df["Regime"] = 1
-        return df, {"1": "Neutral"}, {1: 50}
+        return df, {1: "Neutral"}, {1: 50}
 
     scaler = StandardScaler()
     X = scaler.fit_transform(feat)
@@ -155,7 +157,7 @@ def compute_regimes(df):
 df, names, weights = compute_regimes(df)
 
 # -----------------------------------------------------
-# RISK ESTIMATION
+# RISK SCORE
 # -----------------------------------------------------
 latest_vol = df["Volatility_30d"].iloc[-1]
 vol_risk = min(100, latest_vol * 2500)
@@ -181,69 +183,54 @@ col2.metric("😨 Sentiment Fear", f"{sentiment_fear:.1f}%")
 col3.metric("📊 Regime", regime_label)
 
 # -----------------------------------------------------
-# CHARTS
+# SAFE DATA CLEAN
 # -----------------------------------------------------
 df_clean = df.copy()
-
-# Ensure no multi-index issues
 df_clean = df_clean.reset_index(drop=True)
 
-# Convert all numeric columns to float
 for col in df_clean.columns:
-    if col not in ["Date"]:
+    if col != "Date":
         df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
 
-# Drop any rows where ClosePrice is missing
 df_clean = df_clean.dropna(subset=["ClosePrice"])
-
-# Force Date column to datetime
 df_clean["Date"] = pd.to_datetime(df_clean["Date"], errors="coerce")
-
-# Remove rows where Date failed to parse
 df_clean = df_clean.dropna(subset=["Date"])
 
 # -----------------------------------------------------
-# PRICE CHART (Guaranteed 1D data only)
+# PRICE CHART
 # -----------------------------------------------------
 st.subheader(f"{asset_name} Price Chart")
-
 fig_price = px.line(
     df_clean,
     x="Date",
     y="ClosePrice",
     title=f"{asset_name} Closing Price",
-    labels={"Date": "Date", "ClosePrice": "Price ($)"}
 )
-
 st.plotly_chart(fig_price, use_container_width=True)
 
 # -----------------------------------------------------
 # VOLATILITY CHART
 # -----------------------------------------------------
 st.subheader("Volatility (30-Day Rolling)")
-
 fig_vol = px.line(
     df_clean,
     x="Date",
     y="Volatility_30d",
     title="Realized Volatility",
 )
-
 st.plotly_chart(fig_vol, use_container_width=True)
 
 # -----------------------------------------------------
-# REGIME CLASSIFICATION CHART
+# REGIME PLOT
 # -----------------------------------------------------
 st.subheader("Regime Classification")
-
 fig_reg = px.scatter(
     df_clean,
     x="Date",
     y="ClosePrice",
     color=df_clean["Regime"].map(names),
-    title="Market Regimes Over Time",
+    title="Regimes Over Time",
 )
-
 st.plotly_chart(fig_reg, use_container_width=True)
 
 # -----------------------------------------------------
@@ -258,5 +245,3 @@ fig_sent = px.histogram(sent_scores, nbins=20, title="Sentiment Histogram")
 st.plotly_chart(fig_sent, use_container_width=True)
 
 st.success("App running successfully. No errors!")
-
-
