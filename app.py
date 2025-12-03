@@ -14,7 +14,7 @@ from sklearn.preprocessing import StandardScaler
 # STREAMLIT CONFIG
 # ----------------------------------------------------
 st.set_page_config(page_title="AI Market Risk Dashboard", layout="wide")
-st.title("🧠 AI Market Crash Warning System")
+st.title(" AI Market Crash Warning System")
 st.caption("Volatility • Regimes • Sentiment • Crash Probability")
 
 
@@ -215,7 +215,7 @@ st.plotly_chart(fig_vol, use_container_width=True)
 # ----------------------------------------------------
 # REGIME SCATTER
 # ----------------------------------------------------
-st.subheader("🟪 Market Regimes")
+st.subheader(" Market Regimes")
 
 fig_reg = go.Figure()
 fig_reg.add_trace(go.Scatter(
