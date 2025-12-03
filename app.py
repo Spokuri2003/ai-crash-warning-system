@@ -7,9 +7,9 @@ import plotly.express as px
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
-# -----------------------------------------------------
-# PAGE CONFIG (dark / quant style)
-# -----------------------------------------------------
+# -------------------------------------------------------
+# PAGE CONFIG (Dark Quant Style)
+# -------------------------------------------------------
 st.set_page_config(page_title="Market Regime & Crash Risk Monitor", layout="wide")
 
 st.markdown(
@@ -17,6 +17,7 @@ st.markdown(
     <style>
     body { background-color: #0b0c10; }
     .main { background-color: #0b0c10; color: #eaeaea; }
+    h1, h2, h3, h4, h5, h6 { color: #66fcf1 !important; }
     .stMetric { background-color: #1f2833 !important; border-radius: 8px; padding: 8px; }
     </style>
     """,
@@ -24,11 +25,11 @@ st.markdown(
 )
 
 st.title("Market Regime & Crash Risk Monitor")
-st.write("Quant-style dashboard with regimes, volatility, and sentiment-derived risk.")
+st.write("Institutional-grade dashboard combining volatility, regimes, and sentiment-based risk.")
 
-# -----------------------------------------------------
-# ASSET SELECTION
-# -----------------------------------------------------
+# -------------------------------------------------------
+# ASSET SELECTOR
+# -------------------------------------------------------
 ASSETS = {
     "Bitcoin (BTC-USD)": "BTC-USD",
     "Ethereum (ETH-USD)": "ETH-USD",
@@ -37,281 +38,195 @@ ASSETS = {
     "Gold Futures (GC=F)": "GC=F",
 }
 
-asset_name = st.sidebar.selectbox("Asset", list(ASSETS.keys()))
+asset_name = st.sidebar.selectbox("Select Asset", list(ASSETS.keys()))
 symbol = ASSETS[asset_name]
 
-# -----------------------------------------------------
-# DATA LOADER (robust, no weird columns)
-# -----------------------------------------------------
+# -------------------------------------------------------
+# UNIVERSAL CLEANER FOR ALL PRICE DATA
+# -------------------------------------------------------
 @st.cache_data
-def load_price_data(sym: str) -> pd.DataFrame:
-    df = yf.download(sym, period="3y", interval="1d", auto_adjust=False, group_by="column")
+def load_price_data(symbol):
+    df = yf.download(symbol, period="3y", interval="1d", auto_adjust=False)
 
     if df is None or df.empty:
         return pd.DataFrame()
 
-    # Bring index (Date) into a column
-    df = df.reset_index()  # now has a "Date" column
+    df = df.reset_index()  # Ensure Date column exists
 
-    # Standard columns for yfinance single ticker: Open, High, Low, Close, Adj Close, Volume
-    close_col = None
-    if "Close" in df.columns:
-        close_col = "Close"
-    elif "Adj Close" in df.columns:
-        close_col = "Adj Close"
-    else:
-        # Fallback: pick any column that looks like close
-        candidates = [c for c in df.columns if "close" in c.lower()]
-        if candidates:
-            close_col = candidates[0]
+    # --- UNIVERSAL COLUMN NORMALIZATION & SYMBOL REMOVAL ---
+    df.columns = (
+        df.columns
+        .str.lower()
+        .str.replace(" ", "")
+        .str.replace("-", "")
+        .str.replace("_", "")
+        .str.replace(".", "")
+        .str.replace("^", "")
+        .str.replace("=", "")
+    )
 
-    if close_col is None:
-        return pd.DataFrame()
+    # Debug print
+    st.write("Columns returned:", list(df.columns))
 
-    df = df.rename(columns={close_col: "ClosePrice"})
-    df["ClosePrice"] = df["ClosePrice"].astype(float)
+    # --- UNIVERSAL CLOSE DETECTOR ---
+    close_candidates = [c for c in df.columns if "close" in c]
 
-    # Ensure Date is datetime
-    if "Date" not in df.columns:
-        df["Date"] = df.index
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    if len(close_candidates) == 0:
+        # fallback if close not found
+        num_cols = [c for c in df.columns if np.issubdtype(df[c].dtype, np.number)]
+        if "open" in df.columns:
+            close_candidates = ["open"]
+        elif len(num_cols) > 0:
+            close_candidates = [num_cols[0]]
+        else:
+            st.error("No usable price columns found.")
+            return pd.DataFrame()
 
-    df = df.dropna(subset=["Date", "ClosePrice"]).sort_values("Date").reset_index(drop=True)
+    close_col = close_candidates[0]
+    df["ClosePrice"] = df[close_col].astype(float)
 
-    # Simple features
+    # Ensure Date column
+    if "date" not in df.columns:
+        df["date"] = df.index
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    df = df.dropna(subset=["date", "ClosePrice"]).sort_values("date").reset_index(drop=True)
+
+    # Features
     df["Returns"] = df["ClosePrice"].pct_change()
-    df["Volatility_30d"] = df["Returns"].rolling(window=30).std()
-    df = df.dropna(subset=["Returns", "Volatility_30d"]).reset_index(drop=True)
+    df["Volatility_30d"] = df["Returns"].rolling(30).std()
 
-    return df
+    return df.dropna().reset_index(drop=True)
 
 
 df = load_price_data(symbol)
-
 if df.empty:
-    st.error("No valid price data found for this asset.")
+    st.error("No valid price data found.")
     st.stop()
 
-# -----------------------------------------------------
-# SIMPLE NEWS FETCH + MANUAL SENTIMENT
-# (no NLTK, no external models)
-# -----------------------------------------------------
+# -------------------------------------------------------
+# SIMPLE NLP SENTIMENT (No NLTK)
+# -------------------------------------------------------
 @st.cache_data
-def load_headlines() -> list[str]:
+def load_headlines():
     try:
         url = "https://cryptopanic.com/api/v1/posts/?auth_token=bbf69ca77e536fa8d3&public=true"
-        r = requests.get(url, timeout=5)
-        data = r.json()
-        if "results" in data:
-            titles = [item.get("title", "") for item in data["results"]]
-            # Only keep first 20 to keep it light
-            return titles[:20]
-    except Exception:
+        r = requests.get(url, timeout=5).json()
+        if "results" in r:
+            return [item.get("title", "") for item in r["results"]][:20]
+    except:
         pass
-
-    # Fallback generic macro/market-style headlines
     return [
         "Markets remain cautious amid global uncertainty",
         "Volatility rises as investors react to macro data",
-        "Traders watch liquidity conditions after recent selloff",
-        "Risk sentiment weakens in global markets",
-        "Analysts see elevated downside risks near term",
+        "Risk sentiment weakens across global markets",
+        "Analysts warn of potential downside risks",
+        "Traders observe elevated volatility conditions",
     ]
 
 
-def compute_sentiment_lexicon(headlines: list[str]) -> float:
-    """
-    Very simple lexicon-based sentiment:
-    Score: positive words +1, negative words -1, normalized by total matches.
-    Returns average sentiment in [-1, 1].
-    """
-    positive_words = {"bullish", "rally", "optimistic", "growth", "upside", "strong", "rebound"}
-    negative_words = {"crash", "selloff", "panic", "fear", "uncertain", "risk", "loss", "bearish", "volatility"}
+def simple_sentiment_lexicon(text_list):
+    pos_words = {"bull", "optimistic", "growth", "upside", "rebound", "strong"}
+    neg_words = {"crash", "panic", "fear", "risk", "bear", "selloff", "volatility", "uncertain"}
 
     scores = []
-    for title in headlines:
-        text = title.lower()
-        score = 0
-        hits = 0
-        for w in positive_words:
-            if w in text:
-                score += 1
-                hits += 1
-        for w in negative_words:
-            if w in text:
-                score -= 1
-                hits += 1
+    for t in text_list:
+        txt = t.lower()
+        score, hits = 0, 0
+        for w in pos_words:
+            if w in txt:
+                score += 1; hits += 1
+        for w in neg_words:
+            if w in txt:
+                score -= 1; hits += 1
         if hits > 0:
             scores.append(score / hits)
 
-    if not scores:
-        return 0.0
-
-    return float(np.mean(scores))
+    return np.mean(scores) if scores else 0
 
 
 headlines = load_headlines()
-avg_sentiment = compute_sentiment_lexicon(headlines)
-# Negative sentiment → higher fear score [0,100]
-sentiment_fear = max(0.0, -avg_sentiment * 100.0)
+avg_sentiment = simple_sentiment_lexicon(headlines)
+sentiment_fear = max(0, -avg_sentiment * 100)  # ↗ fear = negative sentiment
 
-# -----------------------------------------------------
-# REGIME DETECTION (K-Means on Returns + Volatility)
-# -----------------------------------------------------
-def detect_regimes(data: pd.DataFrame, n_clusters: int = 3):
-    feat = data[["Returns", "Volatility_30d"]].dropna()
-
-    if len(feat) < n_clusters + 30:
-        # Not enough data: default neutral
-        data = data.copy()
-        data["Regime"] = 1
-        names = {1: "Neutral"}
-        weights = {1: 50.0}
-        return data, names, weights
-
+# -------------------------------------------------------
+# MARKET REGIME DETECTION
+# -------------------------------------------------------
+def detect_regimes(df):
+    features = df[["Returns", "Volatility_30d"]]
     scaler = StandardScaler()
-    X = scaler.fit_transform(feat)
+    X = scaler.fit_transform(features)
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
     labels = kmeans.fit_predict(X)
 
-    out = data.copy()
-    out["Regime"] = np.nan
-    out.loc[feat.index, "Regime"] = labels
+    df["Regime"] = labels
 
     centers = pd.DataFrame(kmeans.cluster_centers_, columns=["ret", "vol"])
-    centers["stress"] = centers["vol"] - centers["ret"]
+    centers["stress"] = centers["vol"] - centers["ret"]  # Higher vol, lower return = more stress
     order = centers.sort_values("stress", ascending=False).index.tolist()
 
-    regime_names = {}
-    regime_weights = {}
-    label_map = ["High-Stress", "Neutral", "Calm"]
-    risk_map = [85.0, 55.0, 25.0]
+    names = {order[0]: "High-Stress", order[1]: "Neutral", order[2]: "Calm"}
+    risk =  {order[0]: 85.0,        order[1]: 55.0,      order[2]: 25.0}
 
-    for rank, cluster_idx in enumerate(order):
-        regime_names[cluster_idx] = label_map[rank]
-        regime_weights[cluster_idx] = risk_map[rank]
-
-    return out, regime_names, regime_weights
+    return df, names, risk
 
 
-df_reg, regime_names, regime_weights = detect_regimes(df)
+df, regime_names, regime_risk_map = detect_regimes(df)
 
-# -----------------------------------------------------
-# RISK SCORE COMBINATION
-# -----------------------------------------------------
-# Volatility-based risk (scale realized vol)
-latest_vol = float(df_reg["Volatility_30d"].iloc[-1])
-vol_risk = min(100.0, latest_vol * 4000.0)
+# -------------------------------------------------------
+# CRASH RISK SCORE
+# -------------------------------------------------------
+latest_vol = df["Volatility_30d"].iloc[-1]
+vol_risk = min(100, latest_vol * 4000)
 
-# Last valid regime
-last_regime_idx = df_reg["Regime"].last_valid_index()
-if last_regime_idx is None:
-    current_regime_label = "Neutral"
-    regime_risk = 50.0
-else:
-    last_regime = int(df_reg.loc[last_regime_idx, "Regime"])
-    current_regime_label = regime_names.get(last_regime, "Neutral")
-    regime_risk = regime_weights.get(last_regime, 50.0)
+latest_reg = int(df["Regime"].iloc[-1])
+reg_label = regime_names.get(latest_reg, "Neutral")
+reg_risk  = regime_risk_map.get(latest_reg, 55)
 
-# Combine components (weights are arbitrary but interpretable)
-crash_score = (
-    0.5 * vol_risk +
-    0.3 * sentiment_fear +
-    0.2 * regime_risk
-)
-crash_score = float(np.clip(crash_score, 0.0, 100.0))
+crash_risk = 0.5 * vol_risk + 0.3 * sentiment_fear + 0.2 * reg_risk
+crash_risk = float(np.clip(crash_risk, 0, 100))
 
-# -----------------------------------------------------
-# TOP SUMMARY METRICS
-# -----------------------------------------------------
-latest_price = float(df_reg["ClosePrice"].iloc[-1])
-latest_ret = float(df_reg["Returns"].iloc[-1])
-
+# -------------------------------------------------------
+# METRICS DISPLAY
+# -------------------------------------------------------
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Last Price", f"{latest_price:,.2f}")
-c2.metric("Daily Return", f"{latest_ret*100:,.2f} %")
-c3.metric("30D Volatility", f"{latest_vol*100:,.2f} %")
-c4.metric("Crash Risk Score", f"{crash_score:,.1f} / 100")
+c1.metric("Price", f"{df['ClosePrice'].iloc[-1]:,.2f}")
+c2.metric("Daily Return", f"{df['Returns'].iloc[-1]*100:,.2f} %")
+c3.metric("30D Vol", f"{df['Volatility_30d'].iloc[-1]*100:,.2f} %")
+c4.metric("Crash Risk", f"{crash_risk:,.1f} / 100")
 
-st.markdown(f"**Current regime:** {current_regime_label}  |  **Sentiment fear:** {sentiment_fear:,.1f} / 100")
+st.caption(f"**Regime:** {reg_label} | **Sentiment Fear:** {sentiment_fear:,.1f}")
 
-# -----------------------------------------------------
-# LAYOUT: CHARTS
-# -----------------------------------------------------
-st.markdown("---")
-st.subheader(f"{asset_name} – Price & Regimes")
-
-fig_price = px.line(
-    df_reg,
-    x="Date",
-    y="ClosePrice",
-    title=f"{asset_name} Price with Regimes",
-)
-# Color by regime in a separate scatter overlay
-if df_reg["Regime"].notna().any():
-    fig_regimes = px.scatter(
-        df_reg,
-        x="Date",
-        y="ClosePrice",
-        color=df_reg["Regime"].map(regime_names),
-    )
-    for trace in fig_regimes.data:
-        fig_price.add_trace(trace)
-
-fig_price.update_layout(showlegend=True)
+# -------------------------------------------------------
+# PRICE + REGIME CHART
+# -------------------------------------------------------
+fig_price = px.line(df, x="date", y="ClosePrice", title="Price with Market Regimes")
+fig_reg = px.scatter(df, x="date", y="ClosePrice", color=df["Regime"].map(regime_names))
+for trace in fig_reg.data:
+    fig_price.add_trace(trace)
 st.plotly_chart(fig_price, use_container_width=True)
 
-# Volatility chart
-st.subheader("Realized Volatility (30-Day Rolling)")
-fig_vol = px.line(
-    df_reg,
-    x="Date",
-    y="Volatility_30d",
-    title="30D Realized Volatility",
-)
+# -------------------------------------------------------
+# VOLATILITY
+# -------------------------------------------------------
+fig_vol = px.line(df, x="date", y="Volatility_30d", title="30D Realized Volatility")
 st.plotly_chart(fig_vol, use_container_width=True)
 
-# Returns chart
-st.subheader("Daily Returns")
-fig_ret = px.line(
-    df_reg,
-    x="Date",
-    y="Returns",
-    title="Daily Returns",
-)
+# -------------------------------------------------------
+# RETURNS
+# -------------------------------------------------------
+fig_ret = px.line(df, x="date", y="Returns", title="Daily Returns")
 st.plotly_chart(fig_ret, use_container_width=True)
 
-# -----------------------------------------------------
+# -------------------------------------------------------
 # SENTIMENT PANEL
-# -----------------------------------------------------
-st.markdown("---")
-st.subheader("News-Based Sentiment Context")
+# -------------------------------------------------------
+st.subheader("News Sentiment")
+for h in headlines[:10]:
+    st.write("- " + h)
 
-col_left, col_right = st.columns([2, 1])
+st.write(f"**Average Sentiment:** {avg_sentiment:.3f}")
+st.write(f"**Sentiment Fear Score:** {sentiment_fear:.1f} / 100")
 
-with col_left:
-    st.write("Recent headlines used for sentiment estimation:")
-    for h in headlines[:10]:
-        st.write("- " + h)
-
-with col_right:
-    st.write("Average sentiment score (lexicon-based):")
-    st.write(f"{avg_sentiment: .3f}")
-    st.write(f"Derived sentiment fear: **{sentiment_fear:,.1f} / 100**")
-
-    # Simple histogram of sentiment contributions (each headline)
-    # Recompute per-headline scores for histogram
-    per_headline_scores = []
-    for h in headlines:
-        per_headline_scores.append(compute_sentiment_lexicon([h]))
-    if per_headline_scores:
-        fig_sent = px.histogram(
-            x=per_headline_scores,
-            nbins=10,
-            title="Headline Sentiment Distribution",
-            labels={"x": "Sentiment per headline"},
-        )
-        st.plotly_chart(fig_sent, use_container_width=True)
-
-st.success("Model run complete. This project is now in a stable, finished state.")
+st.success("Dashboard loaded successfully.")
