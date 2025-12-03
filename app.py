@@ -72,8 +72,11 @@ analyzer = SentimentIntensityAnalyzer()
 def compute_sentiment(titles):
     scores = []
     for t in titles:
-        s = analyzer.polarity_scores(t)["compound"]
-        scores.append(s)
+        try:
+            score = analyzer.polarity_scores(t)["compound"]
+        except:
+            score = 0
+        scores.append(score)
     return scores
 
 sentiment_scores = compute_sentiment(news_titles)
